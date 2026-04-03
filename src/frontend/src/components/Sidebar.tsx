@@ -1,3 +1,4 @@
+import { usePharmacy } from "@/context/PharmacyContext";
 import {
   Brain,
   FileText,
@@ -108,6 +109,7 @@ function NavButton({
   item,
   isActive,
   onNavigate,
+  badge,
 }: {
   item: {
     id: Page;
@@ -117,6 +119,7 @@ function NavButton({
   };
   isActive: boolean;
   onNavigate: (page: Page) => void;
+  badge?: number;
 }) {
   const Icon = item.icon;
   return (
@@ -138,7 +141,7 @@ function NavButton({
           height: "18px",
         }}
       />
-      <div>
+      <div className="flex-1 min-w-0">
         <div
           className="text-sm font-medium leading-tight transition-colors"
           style={{ color: isActive ? "#E2E8F0" : "#94A3B8" }}
@@ -149,7 +152,15 @@ function NavButton({
           {item.description}
         </div>
       </div>
-      {isActive && (
+      {badge !== undefined && badge > 0 && (
+        <span
+          className="shrink-0 min-w-[18px] h-[18px] rounded-full flex items-center justify-center text-xs font-bold px-1"
+          style={{ backgroundColor: "#EF4444", color: "#fff" }}
+        >
+          {badge}
+        </span>
+      )}
+      {isActive && !badge && (
         <div
           className="ml-auto w-1.5 h-1.5 rounded-full"
           style={{ backgroundColor: "#60A5FA" }}
@@ -160,6 +171,9 @@ function NavButton({
 }
 
 export function Sidebar({ activePage, onNavigate }: SidebarProps) {
+  const { customers } = usePharmacy();
+  const atRiskCount = customers.filter((c) => c.isAtRisk).length;
+
   const today = new Date().toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
@@ -218,6 +232,9 @@ export function Sidebar({ activePage, onNavigate }: SidebarProps) {
                 item={item}
                 isActive={activePage === item.id}
                 onNavigate={onNavigate}
+                badge={
+                  item.id === "customers" ? atRiskCount || undefined : undefined
+                }
               />
             ))}
           </div>

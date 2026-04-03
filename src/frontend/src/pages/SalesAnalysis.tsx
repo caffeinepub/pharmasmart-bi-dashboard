@@ -4,7 +4,14 @@ import {
   monthlyRevenue,
   topMedicines,
 } from "@/data/pharmacyData";
-import { AlertCircle, Award, TrendingDown, TrendingUp } from "lucide-react";
+import {
+  AlertCircle,
+  Award,
+  TrendingDown,
+  TrendingUp,
+  Users,
+} from "lucide-react";
+import { useMemo } from "react";
 
 function MoMChange({
   current,
@@ -31,7 +38,7 @@ function MoMChange({
 }
 
 export function SalesAnalysis() {
-  const { totalRevenue: contextRevenue, invoices } = usePharmacy();
+  const { totalRevenue: contextRevenue, invoices, customers } = usePharmacy();
   const baseRevenue = monthlyRevenue.reduce((s, m) => s + m.revenue, 0);
   const invoiceRevenue = invoices.reduce((s, inv) => s + inv.total, 0);
   const displayRevenue = contextRevenue;
@@ -41,6 +48,38 @@ export function SalesAnalysis() {
     .reduce((s, m) => s + m.revenue, 0);
   const secondHalf = monthlyRevenue.slice(6).reduce((s, m) => s + m.revenue, 0);
   const growthRate = (((secondHalf - firstHalf) / firstHalf) * 100).toFixed(1);
+
+  // Customer Revenue Breakdown — top 10 by total revenue
+  const customerRevenueSummary = useMemo(() => {
+    return [...customers]
+      .map((c) => {
+        const revenue = c.purchaseHistory.reduce(
+          (sum, ph) =>
+            sum + ph.medicines.reduce((s, m) => s + m.price * m.quantity, 0),
+          0,
+        );
+        const profit = c.purchaseHistory.reduce(
+          (sum, ph) =>
+            sum +
+            ph.medicines.reduce(
+              (s, m) => s + (m.price - (m.costPrice ?? 0)) * m.quantity,
+              0,
+            ),
+          0,
+        );
+        return {
+          name: c.name,
+          revenue,
+          profit,
+          invoiceCount: c.purchaseHistory.length,
+          profitMarginPct:
+            revenue > 0 ? ((profit / revenue) * 100).toFixed(1) : null,
+        };
+      })
+      .filter((c) => c.revenue > 0)
+      .sort((a, b) => b.revenue - a.revenue)
+      .slice(0, 10);
+  }, [customers]);
 
   return (
     <div className="p-6 space-y-6" data-ocid="sales.page">
@@ -269,6 +308,144 @@ export function SalesAnalysis() {
             ))}
           </div>
         </div>
+      </div>
+
+      {/* Customer Revenue Breakdown */}
+      <div
+        className="bg-card rounded-xl p-6 border border-border shadow-xs"
+        data-ocid="sales.customer_revenue.panel"
+      >
+        <div className="flex items-center gap-2 mb-5">
+          <Users className="w-5 h-5" style={{ color: "#6366F1" }} />
+          <h3 className="text-base font-semibold text-foreground">
+            Customer Revenue Breakdown
+          </h3>
+          <span
+            className="ml-auto px-2 py-0.5 rounded-full text-xs font-bold"
+            style={{ backgroundColor: "#1E1B4B", color: "#818CF8" }}
+          >
+            Top {customerRevenueSummary.length} by revenue
+          </span>
+        </div>
+
+        {customerRevenueSummary.length === 0 ? (
+          <div
+            className="text-sm text-muted-foreground text-center py-8"
+            data-ocid="sales.customer_revenue.empty_state"
+          >
+            No customer purchase data yet. Create invoices with customer names
+            to see the revenue breakdown.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table
+              className="w-full text-sm"
+              data-ocid="sales.customer_revenue.table"
+            >
+              <thead>
+                <tr className="border-b border-border">
+                  {[
+                    "Rank",
+                    "Customer Name",
+                    "Total Revenue (EGP)",
+                    "Invoices",
+                    "Total Profit (EGP)",
+                    "Profit Margin %",
+                  ].map((h) => (
+                    <th
+                      key={h}
+                      className="text-left py-2 px-3 text-xs text-muted-foreground font-medium uppercase tracking-wide"
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {customerRevenueSummary.map((c, i) => (
+                  <tr
+                    key={c.name}
+                    className="border-b border-border/50 hover:bg-muted/30 transition-colors"
+                    data-ocid={`sales.customer_revenue.item.${i + 1}`}
+                  >
+                    <td className="py-2.5 px-3">
+                      <span
+                        className="inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold"
+                        style={{
+                          backgroundColor:
+                            i === 0
+                              ? "#78350F"
+                              : i === 1
+                                ? "#1E293B"
+                                : i === 2
+                                  ? "#172554"
+                                  : "#0F172A",
+                          color:
+                            i === 0
+                              ? "#FDE68A"
+                              : i === 1
+                                ? "#CBD5E1"
+                                : i === 2
+                                  ? "#93C5FD"
+                                  : "#64748B",
+                        }}
+                      >
+                        {i + 1}
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-3 font-medium text-foreground">
+                      {c.name}
+                    </td>
+                    <td
+                      className="py-2.5 px-3 font-mono font-bold"
+                      style={{ color: "#818CF8" }}
+                    >
+                      {c.revenue.toLocaleString(undefined, {
+                        maximumFractionDigits: 0,
+                      })}
+                    </td>
+                    <td className="py-2.5 px-3 text-muted-foreground">
+                      {c.invoiceCount}
+                    </td>
+                    <td
+                      className="py-2.5 px-3 font-mono font-semibold"
+                      style={{ color: "#10B981" }}
+                    >
+                      {c.profit.toLocaleString(undefined, {
+                        maximumFractionDigits: 0,
+                      })}
+                    </td>
+                    <td className="py-2.5 px-3">
+                      <span
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold"
+                        style={{
+                          backgroundColor: c.profitMarginPct
+                            ? Number(c.profitMarginPct) >= 30
+                              ? "#064E3B"
+                              : Number(c.profitMarginPct) >= 15
+                                ? "#78350F"
+                                : "#1A0707"
+                            : "#1E293B",
+                          color: c.profitMarginPct
+                            ? Number(c.profitMarginPct) >= 30
+                              ? "#6EE7B7"
+                              : Number(c.profitMarginPct) >= 15
+                                ? "#FDE68A"
+                                : "#FCA5A5"
+                            : "#64748B",
+                        }}
+                      >
+                        {c.profitMarginPct !== null
+                          ? `${c.profitMarginPct}%`
+                          : "—"}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Insight block */}

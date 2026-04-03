@@ -3,15 +3,33 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { usePharmacy } from "@/context/PharmacyContext";
 import type { InvoiceItem } from "@/context/PharmacyContext";
-import { CheckCircle, FileText } from "lucide-react";
-import { useMemo, useState } from "react";
+import { AlertTriangle, CheckCircle, FileText, User } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
 
 export function CreateInvoice() {
-  const { medicines, createInvoice } = usePharmacy();
+  const { medicines, createInvoice, customers } = usePharmacy();
   const [customerName, setCustomerName] = useState("");
+  const [customerNameError, setCustomerNameError] = useState("");
   const [quantities, setQuantities] = useState<Record<string, string>>({});
   const [successMsg, setSuccessMsg] = useState("");
   const [qtyErrors, setQtyErrors] = useState<Record<string, string>>({});
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const nameInputRef = useRef<HTMLInputElement>(null);
+
+  // Autocomplete suggestions from existing customers
+  const suggestions = useMemo(() => {
+    const q = customerName.trim().toLowerCase();
+    if (!q || q.length < 1) return [];
+    return customers
+      .filter((c) => c.name.toLowerCase().startsWith(q))
+      .slice(0, 5);
+  }, [customers, customerName]);
+
+  const matchingCustomer = useMemo(() => {
+    const q = customerName.trim().toLowerCase();
+    if (!q) return null;
+    return customers.find((c) => c.name.toLowerCase() === q) ?? null;
+  }, [customers, customerName]);
 
   const selectedItems = useMemo(() => {
     return medicines
@@ -58,8 +76,25 @@ export function CreateInvoice() {
     });
   }
 
+  function handleCustomerNameChange(value: string) {
+    setCustomerName(value);
+    setCustomerNameError("");
+    setShowSuggestions(true);
+  }
+
+  function handleSelectSuggestion(name: string) {
+    setCustomerName(name);
+    setShowSuggestions(false);
+    nameInputRef.current?.focus();
+  }
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!customerName.trim()) {
+      setCustomerNameError("Customer name is required.");
+      nameInputRef.current?.focus();
+      return;
+    }
     if (!canSubmit) return;
     createInvoice(
       selectedItems.map(
@@ -78,6 +113,7 @@ export function CreateInvoice() {
     );
     setCustomerName("");
     setQuantities({});
+    setCustomerNameError("");
   }
 
   return (
@@ -125,16 +161,105 @@ export function CreateInvoice() {
               htmlFor="customer-name"
               className="text-sm font-medium text-foreground"
             >
-              Customer Name{" "}
-              <span className="text-muted-foreground text-xs">(optional)</span>
+              Customer Name <span className="text-red-400 text-xs">*</span>
             </Label>
-            <Input
-              id="customer-name"
-              data-ocid="create_invoice.input"
-              placeholder="e.g. Ahmed Hassan (leave blank for walk-in)"
-              value={customerName}
-              onChange={(e) => setCustomerName(e.target.value)}
-            />
+            <div className="relative">
+              <Input
+                id="customer-name"
+                ref={nameInputRef}
+                data-ocid="create_invoice.input"
+                placeholder="e.g. Ahmed Hassan"
+                value={customerName}
+                onChange={(e) => handleCustomerNameChange(e.target.value)}
+                onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+                onFocus={() => setShowSuggestions(true)}
+                className={customerNameError ? "border-red-500" : ""}
+                autoComplete="off"
+              />
+              {/* Autocomplete dropdown */}
+              {showSuggestions && suggestions.length > 0 && (
+                <div
+                  className="absolute z-10 w-full mt-1 rounded-lg overflow-hidden shadow-lg"
+                  style={{
+                    backgroundColor: "#0F172A",
+                    border: "1px solid #1E293B",
+                  }}
+                  data-ocid="create_invoice.dropdown_menu"
+                >
+                  {suggestions.map((s) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-muted/40 transition-colors"
+                      onMouseDown={() => handleSelectSuggestion(s.name)}
+                    >
+                      <User className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                      <span className="text-sm text-foreground">{s.name}</span>
+                      <span className="ml-auto text-xs text-muted-foreground">
+                        {s.purchaseHistory.length} invoice
+                        {s.purchaseHistory.length !== 1 ? "s" : ""}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Validation error */}
+            {customerNameError && (
+              <p
+                className="text-xs text-red-400"
+                data-ocid="create_invoice.name_error"
+              >
+                {customerNameError}
+              </p>
+            )}
+
+            {/* Returning / new customer hint */}
+            {customerName.trim() && (
+              <div className="mt-1">
+                {matchingCustomer ? (
+                  <span
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium"
+                    style={{ backgroundColor: "#1E1B4B", color: "#A78BFA" }}
+                  >
+                    <User className="w-3 h-3" />
+                    Returning customer —{" "}
+                    {matchingCustomer.purchaseHistory.length} prior invoice
+                    {matchingCustomer.purchaseHistory.length !== 1 ? "s" : ""}
+                  </span>
+                ) : (
+                  <span
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium"
+                    style={{ backgroundColor: "#022C22", color: "#6EE7B7" }}
+                  >
+                    <User className="w-3 h-3" />
+                    New customer
+                  </span>
+                )}
+              </div>
+            )}
+
+            {/* At-risk warning banner */}
+            {matchingCustomer?.isAtRisk && (
+              <div
+                className="mt-2 rounded-xl p-3.5 flex items-start gap-3"
+                style={{
+                  backgroundColor: "#1A0707",
+                  border: "1px solid #7F1D1D",
+                }}
+                data-ocid="create_invoice.at_risk.error_state"
+              >
+                <AlertTriangle
+                  className="w-4 h-4 shrink-0 mt-0.5"
+                  style={{ color: "#EF4444" }}
+                />
+                <p className="text-sm" style={{ color: "#FCA5A5" }}>
+                  ⚠️ This customer is flagged as <strong>At Risk</strong> —
+                  review their purchase history before proceeding.
+                </p>
+              </div>
+            )}
           </div>
         </div>
 

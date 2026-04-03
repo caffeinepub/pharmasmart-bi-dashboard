@@ -1,7 +1,7 @@
 import { AIInsightsPanel } from "@/components/AIInsightsPanel";
 import { Sidebar } from "@/components/Sidebar";
 import type { Page } from "@/components/Sidebar";
-import { PharmacyProvider } from "@/context/PharmacyContext";
+import { PharmacyProvider, usePharmacy } from "@/context/PharmacyContext";
 import { AddMedicine } from "@/pages/AddMedicine";
 import { CreateInvoice } from "@/pages/CreateInvoice";
 import { CustomerInvoicePage } from "@/pages/CustomerInvoicePage";
@@ -14,6 +14,8 @@ import { RecommendationEngine } from "@/pages/RecommendationEngine";
 import { Recommendations } from "@/pages/Recommendations";
 import { SalesAnalysis } from "@/pages/SalesAnalysis";
 import {
+  AlertTriangle,
+  Bell,
   FileText,
   LayoutDashboard,
   Pill,
@@ -21,9 +23,9 @@ import {
   User,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-type AppMode = "select" | "admin" | "customer";
+type AppMode = "select" | "admin" | "customer" | "adminAuth";
 
 const pageComponents: Record<Page, React.ComponentType> = {
   overview: Overview,
@@ -42,7 +44,7 @@ const pageTitles: Record<Page, string> = {
   overview: "Dashboard Overview",
   sales: "Sales Analysis",
   inventory: "Inventory Management",
-  customers: "Customer Intelligence",
+  customers: "Customer Management",
   predictions: "AI Predictions",
   customerPredictions: "Customer Predictions",
   recommendations: "Recommendations",
@@ -50,6 +52,8 @@ const pageTitles: Record<Page, string> = {
   addMedicine: "Add Medicine",
   createInvoice: "Create Invoice",
 };
+
+const ADMIN_PASSWORD = "pharm123";
 
 function ModeSelectorScreen({
   onSelect,
@@ -93,7 +97,8 @@ function ModeSelectorScreen({
         {/* Admin Card */}
         <button
           type="button"
-          onClick={() => onSelect("admin")}
+          onClick={() => onSelect("adminAuth")}
+          data-ocid="mode_selector.admin_button"
           className="flex-1 rounded-2xl p-6 text-left transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] group"
           style={{
             background: "linear-gradient(135deg, #1E3A5F 0%, #1E293B 100%)",
@@ -128,6 +133,7 @@ function ModeSelectorScreen({
         <button
           type="button"
           onClick={() => onSelect("customer")}
+          data-ocid="mode_selector.customer_button"
           className="flex-1 rounded-2xl p-6 text-left transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] group"
           style={{
             background: "linear-gradient(135deg, #022C22 0%, #1E293B 100%)",
@@ -166,9 +172,167 @@ function ModeSelectorScreen({
   );
 }
 
+function AdminAuthScreen({
+  onSuccess,
+  onBack,
+}: {
+  onSuccess: () => void;
+  onBack: () => void;
+}) {
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [isShaking, setIsShaking] = useState(false);
+  const passwordRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    passwordRef.current?.focus();
+  }, []);
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (password === ADMIN_PASSWORD) {
+      onSuccess();
+    } else {
+      setError("Incorrect password. Please try again.");
+      setIsShaking(true);
+      setTimeout(() => setIsShaking(false), 500);
+      setPassword("");
+    }
+  }
+
+  return (
+    <div
+      className="min-h-screen flex flex-col items-center justify-center px-4"
+      style={{ backgroundColor: "#0F172A" }}
+    >
+      <motion.div
+        animate={isShaking ? { x: [-8, 8, -8, 8, 0] } : { x: 0 }}
+        transition={{ duration: 0.4 }}
+        className="w-full max-w-sm"
+      >
+        <div
+          className="rounded-2xl p-8"
+          style={{
+            background: "linear-gradient(135deg, #1E3A5F 0%, #1E293B 100%)",
+            border: "1px solid #3B82F6",
+          }}
+          data-ocid="admin_auth.dialog"
+        >
+          {/* Icon */}
+          <div className="flex justify-center mb-6">
+            <div
+              className="w-14 h-14 rounded-2xl flex items-center justify-center"
+              style={{
+                background: "linear-gradient(135deg, #3B82F6 0%, #6366F1 100%)",
+              }}
+            >
+              <ShieldCheck className="w-7 h-7 text-white" />
+            </div>
+          </div>
+
+          <h2 className="text-xl font-bold text-white text-center mb-1">
+            Admin Access
+          </h2>
+          <p className="text-sm text-center mb-6" style={{ color: "#64748B" }}>
+            Enter your admin password to continue
+          </p>
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <input
+                type="password"
+                placeholder="Enter password"
+                value={password}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  setError("");
+                }}
+                className="w-full px-4 py-3 rounded-xl text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                style={{
+                  backgroundColor: "#0F172A",
+                  border: error ? "1px solid #EF4444" : "1px solid #334155",
+                }}
+                ref={passwordRef}
+                data-ocid="admin_auth.input"
+              />
+              {error && (
+                <div
+                  className="flex items-center gap-2 mt-2 text-xs"
+                  style={{ color: "#FCA5A5" }}
+                  data-ocid="admin_auth.error_state"
+                >
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                  {error}
+                </div>
+              )}
+            </div>
+
+            <button
+              type="submit"
+              className="w-full py-3 rounded-xl font-semibold text-sm text-white transition-all hover:opacity-90 active:scale-[0.98]"
+              style={{
+                background: "linear-gradient(135deg, #3B82F6 0%, #6366F1 100%)",
+              }}
+              data-ocid="admin_auth.submit_button"
+            >
+              Unlock Dashboard
+            </button>
+          </form>
+        </div>
+
+        <button
+          type="button"
+          onClick={onBack}
+          className="mt-4 w-full text-center text-sm transition-colors hover:text-white"
+          style={{ color: "#475569" }}
+          data-ocid="admin_auth.cancel_button"
+        >
+          ← Back to mode selector
+        </button>
+      </motion.div>
+    </div>
+  );
+}
+
+// Notification badge component — reads from context, must be inside PharmacyProvider
+function NotificationBadge() {
+  const { medicines } = usePharmacy();
+  const count = useMemo(() => {
+    const lowStock = new Set<string>();
+    const nearExpiry = new Set<string>();
+    for (const m of medicines) {
+      if (m.stock < 10) lowStock.add(m.id);
+      if (m.daysLeft < 30) nearExpiry.add(m.id);
+    }
+    const combined = new Set([...lowStock, ...nearExpiry]);
+    return combined.size;
+  }, [medicines]);
+
+  if (count === 0) return null;
+
+  return (
+    <div
+      className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold cursor-default"
+      style={{
+        backgroundColor: "#1A0707",
+        border: "1px solid #EF4444",
+        color: "#FCA5A5",
+      }}
+      data-ocid="header.notification.toast"
+    >
+      <Bell className="w-3.5 h-3.5" />
+      <span>{count}</span>
+    </div>
+  );
+}
+
 export default function App() {
   const [mode, setMode] = useState<AppMode>("select");
   const [activePage, setActivePage] = useState<Page>("overview");
+
+  function handleAdminSuccess() {
+    setMode("admin");
+  }
 
   return (
     <PharmacyProvider>
@@ -182,6 +346,21 @@ export default function App() {
             transition={{ duration: 0.2 }}
           >
             <ModeSelectorScreen onSelect={setMode} />
+          </motion.div>
+        )}
+
+        {mode === "adminAuth" && (
+          <motion.div
+            key="adminAuth"
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -16 }}
+            transition={{ duration: 0.2 }}
+          >
+            <AdminAuthScreen
+              onSuccess={handleAdminSuccess}
+              onBack={() => setMode("select")}
+            />
           </motion.div>
         )}
 
@@ -234,6 +413,7 @@ export default function App() {
                     {pageTitles[activePage]}
                   </span>
                   <div className="ml-auto flex items-center gap-3">
+                    <NotificationBadge />
                     <div
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold"
                       style={{
@@ -255,7 +435,11 @@ export default function App() {
                       type="button"
                       onClick={() => setMode("select")}
                       className="px-3 py-1.5 rounded-full text-xs font-medium transition-colors hover:bg-muted"
-                      style={{ color: "#64748B", border: "1px solid #1E293B" }}
+                      style={{
+                        color: "#64748B",
+                        border: "1px solid #1E293B",
+                      }}
+                      data-ocid="header.exit.button"
                     >
                       ← Exit
                     </button>

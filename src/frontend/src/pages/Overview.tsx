@@ -1,4 +1,15 @@
+import { computeSmartRecommendations } from "@/analytics/businessAnalytics";
+import type { TopSellingEntry } from "@/analytics/businessAnalytics";
+import { ActivityLog } from "@/components/ActivityLog";
+import { ProfitSummaryCard } from "@/components/ProfitSummaryCard";
+import { SmartRecommendations } from "@/components/SmartRecommendations";
+import { TopSellingMedicines } from "@/components/TopSellingMedicines";
 import { usePharmacy } from "@/context/PharmacyContext";
+import type {
+  Customer,
+  Invoice,
+  MedicineEntry,
+} from "@/context/PharmacyContext";
 import {
   categoryDistribution,
   customerPredictions,
@@ -11,9 +22,12 @@ import {
   AlertTriangle,
   CheckCircle,
   DollarSign,
+  Download,
   Package,
+  Printer,
   ShoppingCart,
   Star,
+  TrendingUp,
   Users,
 } from "lucide-react";
 import { useMemo } from "react";
@@ -41,6 +55,102 @@ const COLORS = [
   "#7C3AED",
   "#EC4899",
 ];
+
+function exportReportCSV(
+  medicines: MedicineEntry[],
+  invoices: Invoice[],
+  totalProfit: number,
+  topSelling: TopSellingEntry[],
+  customers: Customer[],
+) {
+  const totalRevenue = invoices.reduce((s, inv) => s + inv.total, 0);
+  const lowStockItems = medicines.filter((m) => m.stock < 10);
+
+  const rows: string[] = [];
+
+  // Section 1: Summary KPIs
+  rows.push("=== PHARMASMART REPORT ===");
+  rows.push(`Generated,${new Date().toLocaleString()}`);
+  rows.push("");
+  rows.push("=== SUMMARY KPIs ===");
+  rows.push("Metric,Value");
+  rows.push(`Total Revenue (EGP),${totalRevenue.toFixed(2)}`);
+  rows.push(`Total Orders,${invoices.length}`);
+  rows.push(`Total Profit (EGP),${totalProfit.toFixed(2)}`);
+  rows.push(`Low Stock Items,${lowStockItems.length}`);
+  rows.push("");
+
+  // Section 2: Top Selling Medicines
+  rows.push("=== TOP SELLING MEDICINES ===");
+  rows.push("Rank,Medicine Name,Units Sold");
+  for (let i = 0; i < topSelling.length; i++) {
+    const entry = topSelling[i];
+    rows.push(`${i + 1},${entry.medicineName},${entry.totalSold}`);
+  }
+  if (topSelling.length === 0) rows.push("No sales data available");
+  rows.push("");
+
+  // Section 3: Latest Invoices
+  rows.push("=== LATEST INVOICES ===");
+  rows.push("Date,Customer,Items Count,Total (EGP)");
+  const latest = [...invoices]
+    .sort((a, b) => b.date.getTime() - a.date.getTime())
+    .slice(0, 20);
+  for (const inv of latest) {
+    rows.push(
+      `${inv.date.toLocaleDateString()},${inv.customerName || "Walk-in"},${inv.items.length},${inv.total.toFixed(2)}`,
+    );
+  }
+  if (invoices.length === 0) rows.push("No invoices available");
+  rows.push("");
+
+  // Section 4: At-Risk Customers
+  rows.push("=== AT-RISK CUSTOMERS ===");
+  rows.push("Name,Invoice Count,Last Purchase Date");
+  const atRisk = customers.filter((c) => c.isAtRisk);
+  for (const c of atRisk) {
+    const lastDate =
+      c.purchaseHistory.length > 0
+        ? c.purchaseHistory[c.purchaseHistory.length - 1].date
+        : "—";
+    rows.push(`${c.name},${c.purchaseHistory.length},${lastDate}`);
+  }
+  if (atRisk.length === 0) rows.push("No at-risk customers");
+  rows.push("");
+
+  // Section 5: Low Stock Medicines
+  rows.push("=== LOW STOCK MEDICINES ===");
+  rows.push("Name,Current Stock,Reorder Point");
+  for (const m of lowStockItems) {
+    rows.push(`${m.name},${m.stock},${m.reorderPoint}`);
+  }
+  if (lowStockItems.length === 0)
+    rows.push("All medicines sufficiently stocked");
+  rows.push("");
+
+  // Section 6: Customer Purchase History
+  rows.push("=== CUSTOMER PURCHASE HISTORY ===");
+  rows.push("Customer Name,Invoice ID,Date,Medicines,Quantities");
+  for (const c of customers) {
+    for (const p of c.purchaseHistory) {
+      const medNames = p.medicines.map((m) => m.name).join("; ");
+      const medQtys = p.medicines.map((m) => m.quantity).join("; ");
+      rows.push(
+        `${c.name},#${p.invoiceId.slice(-6)},${p.date},${medNames},${medQtys}`,
+      );
+    }
+  }
+  if (customers.length === 0) rows.push("No customer data available");
+
+  const csv = rows.join("\n");
+  const blob = new Blob([csv], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "pharmasmart-report.csv";
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 function KPICard({
   label,
@@ -95,11 +205,19 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 export function Overview() {
-  const { totalRevenue, totalOrders, invoices, medicines } = usePharmacy();
+  const {
+    totalRevenue,
+    totalOrders,
+    invoices,
+    medicines,
+    totalProfit,
+    topSelling,
+    customers,
+  } = usePharmacy();
 
   const atRiskCount = useMemo(
-    () => customerPredictions.filter((c) => c.segment === "at-risk").length,
-    [],
+    () => customers.filter((c) => c.isAtRisk).length,
+    [customers],
   );
   const highValueCount = useMemo(
     () => customerPredictions.filter((c) => c.segment === "high-value").length,
@@ -136,6 +254,58 @@ export function Overview() {
         .slice(0, 5),
     [invoices],
   );
+
+  const smartRecommendations = useMemo(
+    () => computeSmartRecommendations(medicines, invoices),
+    [medicines, invoices],
+  );
+
+  // Customer & Invoice Analytics
+  const topCustomersByRevenue = useMemo(() => {
+    return [...customers]
+      .map((c) => ({
+        name: c.name,
+        revenue: c.purchaseHistory.reduce(
+          (sum, ph) =>
+            sum + ph.medicines.reduce((s, m) => s + m.price * m.quantity, 0),
+          0,
+        ),
+        invoiceCount: c.purchaseHistory.length,
+        profit: c.purchaseHistory.reduce(
+          (sum, ph) =>
+            sum +
+            ph.medicines.reduce(
+              (s, m) => s + (m.price - (m.costPrice ?? 0)) * m.quantity,
+              0,
+            ),
+          0,
+        ),
+      }))
+      .sort((a, b) => b.revenue - a.revenue)
+      .slice(0, 5);
+  }, [customers]);
+
+  const allCustomerRevenue = useMemo(
+    () =>
+      customers.reduce(
+        (sum, c) =>
+          sum +
+          c.purchaseHistory.reduce(
+            (s, ph) =>
+              s + ph.medicines.reduce((ms, m) => ms + m.price * m.quantity, 0),
+            0,
+          ),
+        0,
+      ),
+    [customers],
+  );
+
+  const customersWithHistory = useMemo(
+    () => customers.filter((c) => c.purchaseHistory.length > 0).length,
+    [customers],
+  );
+  const avgRevenuePerCustomer =
+    customersWithHistory > 0 ? allCustomerRevenue / customersWithHistory : 0;
 
   return (
     <div className="p-6 space-y-6" data-ocid="overview.page">
@@ -178,6 +348,311 @@ export function Overview() {
         />
       </div>
 
+      {/* Business Intelligence Section */}
+      <div>
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+          <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
+            <span>📊</span> Business Intelligence
+            <span className="text-xs font-normal text-muted-foreground ml-2">
+              Advanced Analytics &amp; Smart Insights
+            </span>
+          </h2>
+
+          {/* Export / Print toolbar */}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() =>
+                exportReportCSV(
+                  medicines,
+                  invoices,
+                  totalProfit,
+                  topSelling,
+                  customers,
+                )
+              }
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
+              style={{
+                border: "1px solid #334155",
+                color: "#94A3B8",
+                background: "transparent",
+              }}
+              onMouseEnter={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.background =
+                  "#1E293B";
+                (e.currentTarget as HTMLButtonElement).style.color = "#E2E8F0";
+                (e.currentTarget as HTMLButtonElement).style.borderColor =
+                  "#6366F1";
+              }}
+              onMouseLeave={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.background =
+                  "transparent";
+                (e.currentTarget as HTMLButtonElement).style.color = "#94A3B8";
+                (e.currentTarget as HTMLButtonElement).style.borderColor =
+                  "#334155";
+              }}
+              data-ocid="overview.export.button"
+            >
+              <Download className="w-3.5 h-3.5" />
+              Export CSV
+            </button>
+
+            <button
+              type="button"
+              onClick={() => window.print()}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
+              style={{
+                border: "1px solid #334155",
+                color: "#94A3B8",
+                background: "transparent",
+              }}
+              onMouseEnter={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.background =
+                  "#1E293B";
+                (e.currentTarget as HTMLButtonElement).style.color = "#E2E8F0";
+                (e.currentTarget as HTMLButtonElement).style.borderColor =
+                  "#6366F1";
+              }}
+              onMouseLeave={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.background =
+                  "transparent";
+                (e.currentTarget as HTMLButtonElement).style.color = "#94A3B8";
+                (e.currentTarget as HTMLButtonElement).style.borderColor =
+                  "#334155";
+              }}
+              data-ocid="overview.print.button"
+            >
+              <Printer className="w-3.5 h-3.5" />
+              Print Report
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+          <TopSellingMedicines items={topSelling} />
+          <ProfitSummaryCard
+            totalProfit={totalProfit}
+            invoiceCount={invoices.length}
+          />
+          <SmartRecommendations recommendations={smartRecommendations} />
+        </div>
+      </div>
+
+      {/* Customer & Invoice Analytics Section */}
+      <div data-ocid="overview.customer_analytics.section">
+        <div className="flex items-center gap-2 mb-4">
+          <Users className="w-5 h-5" style={{ color: "#6366F1" }} />
+          <h2 className="text-lg font-bold text-foreground">
+            Customer &amp; Invoice Analytics
+          </h2>
+          <span className="text-xs font-normal text-muted-foreground">
+            Revenue breakdown by customer
+          </span>
+        </div>
+
+        {/* Customer KPI row */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+          <div
+            className="rounded-xl p-5 flex items-center gap-4"
+            style={{ backgroundColor: "#0A1628", border: "1px solid #1E3A5F" }}
+          >
+            <div
+              className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+              style={{ backgroundColor: "#1E3A5F" }}
+            >
+              <DollarSign className="w-5 h-5" style={{ color: "#6366F1" }} />
+            </div>
+            <div>
+              <div
+                className="text-xs font-medium uppercase tracking-wide"
+                style={{ color: "#818CF8" }}
+              >
+                Total Customer Revenue
+              </div>
+              <div className="text-2xl font-bold" style={{ color: "#6366F1" }}>
+                {allCustomerRevenue.toLocaleString(undefined, {
+                  maximumFractionDigits: 0,
+                })}{" "}
+                EGP
+              </div>
+              <div className="text-xs" style={{ color: "#818CF8" }}>
+                From tracked purchases
+              </div>
+            </div>
+          </div>
+
+          <div
+            className="rounded-xl p-5 flex items-center gap-4"
+            style={{ backgroundColor: "#042f2e", border: "1px solid #134e4a" }}
+          >
+            <div
+              className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+              style={{ backgroundColor: "#134e4a" }}
+            >
+              <TrendingUp className="w-5 h-5" style={{ color: "#10B981" }} />
+            </div>
+            <div>
+              <div
+                className="text-xs font-medium uppercase tracking-wide"
+                style={{ color: "#6EE7B7" }}
+              >
+                Avg Revenue / Customer
+              </div>
+              <div className="text-2xl font-bold" style={{ color: "#10B981" }}>
+                {avgRevenuePerCustomer.toLocaleString(undefined, {
+                  maximumFractionDigits: 0,
+                })}{" "}
+                EGP
+              </div>
+              <div className="text-xs" style={{ color: "#6EE7B7" }}>
+                Active customers only
+              </div>
+            </div>
+          </div>
+
+          <div
+            className="rounded-xl p-5 flex items-center gap-4"
+            style={{ backgroundColor: "#1A0707", border: "1px solid #7F1D1D" }}
+          >
+            <div
+              className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+              style={{ backgroundColor: "#7F1D1D" }}
+            >
+              <Users className="w-5 h-5" style={{ color: "#FCA5A5" }} />
+            </div>
+            <div>
+              <div
+                className="text-xs font-medium uppercase tracking-wide"
+                style={{ color: "#FCA5A5" }}
+              >
+                At-Risk Customers
+              </div>
+              <div className="text-2xl font-bold" style={{ color: "#EF4444" }}>
+                {atRiskCount}
+              </div>
+              <div className="text-xs" style={{ color: "#F87171" }}>
+                {atRiskCount === 0
+                  ? "No at-risk customers"
+                  : "Flagged for follow-up"}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Top Customers Table */}
+        <div
+          className="bg-card rounded-xl p-6 border border-border shadow-xs"
+          data-ocid="overview.top_customers.panel"
+        >
+          <div className="flex items-center gap-2 mb-4">
+            <Star className="w-4 h-4" style={{ color: "#F59E0B" }} />
+            <h3 className="text-base font-semibold text-foreground">
+              Top Customers by Revenue
+            </h3>
+            <span
+              className="ml-auto px-2 py-0.5 rounded-full text-xs font-bold"
+              style={{ backgroundColor: "#1E1B4B", color: "#818CF8" }}
+            >
+              Top {topCustomersByRevenue.filter((c) => c.revenue > 0).length}
+            </span>
+          </div>
+          {topCustomersByRevenue.filter((c) => c.revenue > 0).length === 0 ? (
+            <div
+              className="text-sm text-muted-foreground text-center py-6"
+              data-ocid="overview.top_customers.empty_state"
+            >
+              No customer purchase data yet. Create invoices to see top
+              customers.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table
+                className="w-full text-sm"
+                data-ocid="overview.top_customers.table"
+              >
+                <thead>
+                  <tr className="border-b border-border">
+                    {[
+                      "Rank",
+                      "Customer Name",
+                      "Revenue (EGP)",
+                      "Invoices",
+                      "Profit (EGP)",
+                    ].map((h) => (
+                      <th
+                        key={h}
+                        className="text-left py-2 px-3 text-xs text-muted-foreground font-medium uppercase tracking-wide"
+                      >
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {topCustomersByRevenue
+                    .filter((c) => c.revenue > 0)
+                    .map((c, i) => (
+                      <tr
+                        key={c.name}
+                        className="border-b border-border/50 hover:bg-muted/30 transition-colors"
+                        data-ocid={`overview.top_customers.item.${i + 1}`}
+                      >
+                        <td className="py-2.5 px-3">
+                          <span
+                            className="inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold"
+                            style={{
+                              backgroundColor:
+                                i === 0
+                                  ? "#78350F"
+                                  : i === 1
+                                    ? "#1E293B"
+                                    : i === 2
+                                      ? "#172554"
+                                      : "#0F172A",
+                              color:
+                                i === 0
+                                  ? "#FDE68A"
+                                  : i === 1
+                                    ? "#CBD5E1"
+                                    : i === 2
+                                      ? "#93C5FD"
+                                      : "#64748B",
+                            }}
+                          >
+                            {i + 1}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 font-medium text-foreground">
+                          {c.name}
+                        </td>
+                        <td
+                          className="py-2.5 px-3 font-mono font-bold"
+                          style={{ color: "#818CF8" }}
+                        >
+                          {c.revenue.toLocaleString(undefined, {
+                            maximumFractionDigits: 0,
+                          })}
+                        </td>
+                        <td className="py-2.5 px-3 text-muted-foreground">
+                          {c.invoiceCount}
+                        </td>
+                        <td
+                          className="py-2.5 px-3 font-mono font-semibold"
+                          style={{ color: "#10B981" }}
+                        >
+                          {c.profit.toLocaleString(undefined, {
+                            maximumFractionDigits: 0,
+                          })}
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Customer Intelligence KPI Row */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
         <div
@@ -201,7 +676,9 @@ export function Overview() {
               {atRiskCount}
             </div>
             <div className="text-xs" style={{ color: "#F87171" }}>
-              Churn risk detected
+              {atRiskCount === 0
+                ? "No at-risk customers"
+                : "Flagged for follow-up"}
             </div>
           </div>
         </div>
@@ -641,6 +1118,9 @@ export function Overview() {
           </div>
         </div>
       )}
+
+      {/* Activity Log */}
+      <ActivityLog invoices={invoices} customers={customers} />
     </div>
   );
 }

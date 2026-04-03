@@ -1,3 +1,5 @@
+import { LowStockAlert } from "@/components/LowStockAlert";
+import { NearExpiryAlert } from "@/components/NearExpiryAlert";
 import { usePharmacy } from "@/context/PharmacyContext";
 import { stockClassification } from "@/data/pharmacyData";
 import {
@@ -5,9 +7,13 @@ import {
   Brain,
   CheckCircle,
   Package,
+  Search,
+  X,
   XCircle,
 } from "lucide-react";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+
+type FilterType = "all" | "top-selling" | "near-expiry";
 
 function ClassBadge({ cls }: { cls: string }) {
   const cfg = {
@@ -26,7 +32,44 @@ function ClassBadge({ cls }: { cls: string }) {
 }
 
 export function Inventory() {
-  const { medicines } = usePharmacy();
+  const { medicines, restockMedicine, topSelling } = usePharmacy();
+
+  const [searchQuery, setSearchQuery] = useState("");
+  const [activeFilter, setActiveFilter] = useState<FilterType>("all");
+
+  const isFilterActive = searchQuery.trim() !== "" || activeFilter !== "all";
+
+  const topSellingIds = useMemo(
+    () => new Set(topSelling.map((t) => t.medicineId)),
+    [topSelling],
+  );
+
+  const filteredMedicines = useMemo(() => {
+    const today = new Date();
+    const nearExpiryThresholdMs = 30 * 24 * 60 * 60 * 1000;
+
+    return medicines.filter((m) => {
+      // Search filter
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        const matchName = m.name.toLowerCase().includes(q);
+        const matchPrice = m.price.toString().includes(q);
+        const matchStock = m.stock.toString().includes(q);
+        if (!matchName && !matchPrice && !matchStock) return false;
+      }
+
+      // Category filter
+      if (activeFilter === "top-selling") {
+        if (!topSellingIds.has(m.id)) return false;
+      } else if (activeFilter === "near-expiry") {
+        if (!m.expiryDate) return false;
+        const diff = m.expiryDate.getTime() - today.getTime();
+        if (diff <= 0 || diff > nearExpiryThresholdMs) return false;
+      }
+
+      return true;
+    });
+  }, [medicines, searchQuery, activeFilter, topSellingIds]);
 
   const critical = useMemo(
     () =>
@@ -54,6 +97,11 @@ export function Inventory() {
     [medicines],
   );
 
+  function handleClearSearch() {
+    setSearchQuery("");
+    setActiveFilter("all");
+  }
+
   return (
     <div className="p-6 space-y-6" data-ocid="inventory.page">
       {/* Header */}
@@ -64,6 +112,105 @@ export function Inventory() {
         <p className="text-sm text-muted-foreground">
           Stock levels, classification, and reorder optimization
         </p>
+      </div>
+
+      {/* Search & Filter Bar */}
+      <div
+        className="rounded-xl p-4 space-y-3"
+        style={{ background: "#0F1C2E", border: "1px solid #1E293B" }}
+        data-ocid="inventory.search.panel"
+      >
+        <div className="flex items-center gap-2">
+          {/* Search Input */}
+          <div className="relative flex-1">
+            <Search
+              className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4"
+              style={{ color: "#64748B" }}
+            />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search by name, price, or quantity..."
+              className="w-full pl-9 pr-4 py-2 rounded-lg text-sm transition-colors"
+              style={{
+                background: "#1E293B",
+                border: "1px solid #334155",
+                color: "#E2E8F0",
+                outline: "none",
+              }}
+              onFocus={(e) => {
+                (e.currentTarget as HTMLInputElement).style.borderColor =
+                  "#6366F1";
+              }}
+              onBlur={(e) => {
+                (e.currentTarget as HTMLInputElement).style.borderColor =
+                  "#334155";
+              }}
+              data-ocid="inventory.search.input"
+            />
+          </div>
+
+          {/* Clear button */}
+          {isFilterActive && (
+            <button
+              type="button"
+              onClick={handleClearSearch}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all"
+              style={{
+                border: "1px solid #334155",
+                color: "#94A3B8",
+                background: "#1E293B",
+              }}
+              onMouseEnter={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.borderColor =
+                  "#EF4444";
+                (e.currentTarget as HTMLButtonElement).style.color = "#FCA5A5";
+              }}
+              onMouseLeave={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.borderColor =
+                  "#334155";
+                (e.currentTarget as HTMLButtonElement).style.color = "#94A3B8";
+              }}
+              data-ocid="inventory.search.clear.button"
+            >
+              <X className="w-3.5 h-3.5" />
+              Clear
+            </button>
+          )}
+        </div>
+
+        {/* Filter Buttons */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {(
+            [
+              { id: "all", label: "All Medicines", icon: Package },
+              { id: "top-selling", label: "Top Selling", icon: null },
+              { id: "near-expiry", label: "Near Expiry", icon: AlertTriangle },
+            ] as const
+          ).map(({ id, label }) => {
+            const isActive = activeFilter === id;
+            return (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setActiveFilter(id)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
+                style={{
+                  background: isActive ? "#6366F1" : "#1E293B",
+                  border: `1px solid ${isActive ? "#818CF8" : "#334155"}`,
+                  color: isActive ? "#EEF2FF" : "#94A3B8",
+                }}
+                data-ocid={`inventory.filter.${id}.tab`}
+              >
+                {id === "all" && "🗂️"}
+                {id === "top-selling" && "⭐"}
+                {id === "near-expiry" && "⏰"}
+                {label}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* Summary Cards */}
@@ -132,6 +279,12 @@ export function Inventory() {
         </div>
       </div>
 
+      {/* Low Stock Alert Component */}
+      <LowStockAlert medicines={medicines} onRestock={restockMedicine} />
+
+      {/* Near Expiry Alert Component */}
+      <NearExpiryAlert medicines={medicines} onRestock={restockMedicine} />
+
       {/* AI Reorder Recommendation */}
       <div
         className="rounded-xl p-5"
@@ -198,6 +351,14 @@ export function Inventory() {
           <h3 className="text-base font-semibold text-foreground">
             Stock Level Monitoring
           </h3>
+          {isFilterActive && (
+            <span
+              className="ml-auto text-xs px-2 py-0.5 rounded-full"
+              style={{ background: "#1E1B4B", color: "#A5B4FC" }}
+            >
+              Showing {filteredMedicines.length} of {medicines.length} medicines
+            </span>
+          )}
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm" data-ocid="inventory.alerts.table">
@@ -221,111 +382,123 @@ export function Inventory() {
               </tr>
             </thead>
             <tbody>
-              {medicines.map((item, i) => {
-                const status =
-                  item.daysLeft <= 10 || item.stock <= item.reorderPoint
-                    ? "critical"
-                    : item.daysLeft <= 20
-                      ? "low"
-                      : "ok";
-                return (
-                  <tr
-                    key={item.id}
-                    className="border-b border-border/50 hover:bg-muted/30 transition-colors"
-                    data-ocid={`inventory.alert.item.${i + 1}`}
+              {filteredMedicines.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={6}
+                    className="py-8 text-center text-muted-foreground text-sm"
+                    data-ocid="inventory.alerts.empty_state"
                   >
-                    <td className="py-2.5 px-3 font-medium text-foreground">
-                      <div className="flex items-center gap-2">
-                        {item.isUserAdded && (
+                    No medicines match your search or filter criteria.
+                  </td>
+                </tr>
+              ) : (
+                filteredMedicines.map((item, i) => {
+                  const status =
+                    item.daysLeft <= 10 || item.stock <= item.reorderPoint
+                      ? "critical"
+                      : item.daysLeft <= 20
+                        ? "low"
+                        : "ok";
+                  return (
+                    <tr
+                      key={item.id}
+                      className="border-b border-border/50 hover:bg-muted/30 transition-colors"
+                      data-ocid={`inventory.alert.item.${i + 1}`}
+                    >
+                      <td className="py-2.5 px-3 font-medium text-foreground">
+                        <div className="flex items-center gap-2">
+                          {item.isUserAdded && (
+                            <span
+                              className="px-1.5 py-0.5 rounded text-xs font-bold"
+                              style={{
+                                backgroundColor: "#022C22",
+                                color: "#10B981",
+                              }}
+                            >
+                              New
+                            </span>
+                          )}
+                          {item.name}
+                        </div>
+                      </td>
+                      <td className="py-2.5 px-3 text-muted-foreground">
+                        {item.category}
+                      </td>
+                      <td className="py-2.5 px-3">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono font-medium text-foreground">
+                            {item.stock}
+                          </span>
+                          <div className="w-20 h-1.5 bg-muted rounded-full overflow-hidden">
+                            <div
+                              className="h-full rounded-full"
+                              style={{
+                                width: `${Math.min((item.stock / item.reorderPoint) * 100, 100)}%`,
+                                backgroundColor:
+                                  status === "critical"
+                                    ? "#EF4444"
+                                    : status === "low"
+                                      ? "#F59E0B"
+                                      : "#10B981",
+                              }}
+                            />
+                          </div>
+                        </div>
+                      </td>
+                      <td className="py-2.5 px-3 font-mono text-muted-foreground">
+                        {item.reorderPoint}
+                      </td>
+                      <td className="py-2.5 px-3">
+                        {status === "critical" ? (
                           <span
-                            className="px-1.5 py-0.5 rounded text-xs font-bold"
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold"
                             style={{
-                              backgroundColor: "#022C22",
-                              color: "#10B981",
+                              backgroundColor: "#7F1D1D",
+                              color: "#FCA5A5",
                             }}
                           >
-                            New
+                            <XCircle className="w-3 h-3" /> Critical
+                          </span>
+                        ) : status === "low" ? (
+                          <span
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold"
+                            style={{
+                              backgroundColor: "#78350F",
+                              color: "#FCD34D",
+                            }}
+                          >
+                            <AlertTriangle className="w-3 h-3" /> Low
+                          </span>
+                        ) : (
+                          <span
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold"
+                            style={{
+                              backgroundColor: "#064E3B",
+                              color: "#6EE7B7",
+                            }}
+                          >
+                            <CheckCircle className="w-3 h-3" /> OK
                           </span>
                         )}
-                        {item.name}
-                      </div>
-                    </td>
-                    <td className="py-2.5 px-3 text-muted-foreground">
-                      {item.category}
-                    </td>
-                    <td className="py-2.5 px-3">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono font-medium text-foreground">
-                          {item.stock}
-                        </span>
-                        <div className="w-20 h-1.5 bg-muted rounded-full overflow-hidden">
-                          <div
-                            className="h-full rounded-full"
-                            style={{
-                              width: `${Math.min((item.stock / item.reorderPoint) * 100, 100)}%`,
-                              backgroundColor:
-                                status === "critical"
-                                  ? "#EF4444"
-                                  : status === "low"
-                                    ? "#F59E0B"
-                                    : "#10B981",
-                            }}
-                          />
-                        </div>
-                      </div>
-                    </td>
-                    <td className="py-2.5 px-3 font-mono text-muted-foreground">
-                      {item.reorderPoint}
-                    </td>
-                    <td className="py-2.5 px-3">
-                      {status === "critical" ? (
+                      </td>
+                      <td className="py-2.5 px-3">
                         <span
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold"
-                          style={{
-                            backgroundColor: "#7F1D1D",
-                            color: "#FCA5A5",
-                          }}
+                          className={`font-bold ${
+                            item.daysLeft <= 10
+                              ? "text-red-400"
+                              : item.daysLeft <= 20
+                                ? "text-amber-400"
+                                : "text-emerald-400"
+                          }`}
                         >
-                          <XCircle className="w-3 h-3" /> Critical
+                          {item.daysLeft} days
                         </span>
-                      ) : status === "low" ? (
-                        <span
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold"
-                          style={{
-                            backgroundColor: "#78350F",
-                            color: "#FCD34D",
-                          }}
-                        >
-                          <AlertTriangle className="w-3 h-3" /> Low
-                        </span>
-                      ) : (
-                        <span
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold"
-                          style={{
-                            backgroundColor: "#064E3B",
-                            color: "#6EE7B7",
-                          }}
-                        >
-                          <CheckCircle className="w-3 h-3" /> OK
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-2.5 px-3">
-                      <span
-                        className={`font-bold ${
-                          item.daysLeft <= 10
-                            ? "text-red-400"
-                            : item.daysLeft <= 20
-                              ? "text-amber-400"
-                              : "text-emerald-400"
-                        }`}
-                      >
-                        {item.daysLeft} days
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>
