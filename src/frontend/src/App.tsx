@@ -16,6 +16,7 @@ import { SalesAnalysis } from "@/pages/SalesAnalysis";
 import {
   AlertTriangle,
   Bell,
+  Download,
   FileText,
   LayoutDashboard,
   Pill,
@@ -165,7 +166,24 @@ function ModeSelectorScreen({
         </button>
       </div>
 
-      <p className="mt-10 text-xs" style={{ color: "#334155" }}>
+      <div className="mt-8 flex flex-col items-center gap-2">
+        <a
+          href="/downloads/pharmasmart_project.zip"
+          download="pharmasmart_project.zip"
+          className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all hover:opacity-90 active:scale-[0.98]"
+          style={{
+            background: "linear-gradient(135deg, #6366F1 0%, #8B5CF6 100%)",
+            color: "#fff",
+          }}
+        >
+          <Download className="w-4 h-4" />
+          Download Full Source Code (.zip)
+        </a>
+        <p className="text-xs" style={{ color: "#334155" }}>
+          Ready-to-run · package.json · TypeScript · React · Tailwind
+        </p>
+      </div>
+      <p className="mt-4 text-xs" style={{ color: "#334155" }}>
         Graduation Project 2025 · PharmaSmart AI Dashboard
       </p>
     </div>
